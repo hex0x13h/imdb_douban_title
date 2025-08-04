@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Douban Full Title on IMDb (Readable)
+// @name         Douban Full Title on IMDb
 // @namespace    https://your.namespace.example/
-// @version      1.1.0
-// @description  Show the full Douban title next to the IMDb title, with higher-contrast styling
+// @version      1.2.0
+// @description  Show the Douban full title next to IMDb title; with loading spinner; no parentheses.
 // @description:zh-CN 在 IMDb 标题旁显示豆瓣完整标题
 // @author       you
 // @match        *://www.imdb.com/title/tt*
@@ -21,16 +21,32 @@
       font-size: 1.1em;                 /* 可改为 1.2em/1.0em */
       font-weight: 600;                 /* 半粗体，提高辨识度 */
       line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
     .douban-full-title a {
       color: #ffd166 !important;        /* 高对比金色；可改如 #ff9800 / #00e5ff */
       text-decoration: none;
-      text-shadow: 0 1px 2px rgba(0,0,0,.45); /* 暗底增强可读性 */
+      text-shadow: 0 1px 2px rgba(0,0,0,.45);
     }
     .douban-full-title a:hover {
       text-decoration: underline;
       filter: brightness(1.1);
     }
+    .douban-title-spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.35);
+      border-top-color: #ffd166;
+      border-radius: 50%;
+      display: inline-block;
+      animation: douban-spin 0.9s linear infinite;
+    }
+    .douban-title-loading-text {
+      font-size: .95em;
+      color: #bbb;
+    }
+    @keyframes douban-spin { to { transform: rotate(360deg); } }
   `;
 
   // ---------- GM fetch helpers ----------
@@ -83,7 +99,7 @@
     return { full, url: subjectUrl };
   }
 
-  // ---------- UI insertion ----------
+  // ---------- UI helpers ----------
   function ensureStyle() {
     if (!document.getElementById('douban-full-title-style')) {
       const s = document.createElement('style');
@@ -93,39 +109,77 @@
     }
   }
 
-  function insertNextToIMDbTitle(text, url) {
-    if (!text || !url) return;
-    const h1 = document.querySelector('h1[data-testid="hero-title-block__title"]') || document.querySelector('h1');
-    if (!h1) return;
-    if (document.querySelector('.douban-full-title')) return; // 防重复
+  function getTitleH1() {
+    return document.querySelector('h1[data-testid="hero-title-block__title"]') || document.querySelector('h1');
+  }
+
+  function insertLoadingBadge() {
+    const h1 = getTitleH1();
+    if (!h1) return null;
+    if (document.querySelector('.douban-full-title')) return null; // 已存在
 
     ensureStyle();
 
     const wrap = document.createElement('span');
     wrap.className = 'douban-full-title';
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.textContent = `（${text}）`;
+    const spinner = document.createElement('i');
+    spinner.className = 'douban-title-spinner';
 
-    wrap.appendChild(a);
+    const text = document.createElement('span');
+    text.className = 'douban-title-loading-text';
+    text.textContent = '加载中…';
+
+    wrap.appendChild(spinner);
+    wrap.appendChild(text);
+
     h1.after(wrap);
+    return wrap;
+  }
+
+  function replaceWithTitle(wrap, text, url) {
+    if (!wrap) return;
+    wrap.innerHTML = ''; // 清空加载内容
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = text; // 直接显示名字，不加括号
+
+    wrap.appendChild(link);
+  }
+
+  function showError(wrap, msg = '未找到豆瓣标题') {
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const span = document.createElement('span');
+    span.className = 'douban-title-loading-text';
+    span.textContent = msg;
+    wrap.appendChild(span);
   }
 
   // ---------- Main ----------
   async function run() {
     const m = location.href.match(/tt\d+/);
     if (!m) return;
-    const imdbId = m[0];
+
+    // 先放加载动画
+    const badge = insertLoadingBadge();
+    if (!badge) return; // 可能标题未就绪或已存在
 
     try {
+      const imdbId = m[0];
       const subjectUrl = await doubanByIMDbId(imdbId);
       const info = await fetchDoubanFullTitle(subjectUrl);
-      if (info) insertNextToIMDbTitle(info.full, info.url);
+      if (info && info.full && info.url) {
+        replaceWithTitle(badge, info.full, info.url);
+      } else {
+        showError(badge);
+      }
     } catch (e) {
       console.error('Douban title fetch error:', e);
+      showError(badge, '加载失败');
     }
   }
 
@@ -141,7 +195,8 @@
 
   // DOM 渲染后尝试插入
   const obs = new MutationObserver(() => {
-    if (document.querySelector('h1[data-testid="hero-title-block__title"]') && !document.querySelector('.douban-full-title')) {
+    const h1 = getTitleH1();
+    if (h1 && !document.querySelector('.douban-full-title')) {
       run();
     }
   });

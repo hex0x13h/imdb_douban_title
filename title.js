@@ -4,7 +4,7 @@
 // @version      1.2.0
 // @description  Show the Douban full title next to IMDb title; with loading spinner; no parentheses.
 // @description:zh-CN 在 IMDb 标题旁显示豆瓣完整标题
-// @author       you
+// @author       hex0x13h
 // @match        *://www.imdb.com/title/tt*
 // @grant        GM.xmlHttpRequest
 // @connect      api.douban.com
